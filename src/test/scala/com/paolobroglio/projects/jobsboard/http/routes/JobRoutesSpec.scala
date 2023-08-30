@@ -11,7 +11,7 @@ import io.circe.generic.auto.*
 import org.http4s.circe.CirceEntityCodec.*
 import org.http4s.dsl.Http4sDsl
 import org.http4s.implicits.uri
-import org.http4s.{HttpRoutes, Method, Request, Status}
+import org.http4s.{HttpRoutes, Method, Request, Status, Uri}
 import org.scalatest.freespec.AsyncFreeSpec
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.matchers.should.Matchers.shouldBe
@@ -67,6 +67,15 @@ class JobRoutesSpec
         retrieved shouldBe AwesomeJob
       }
     }
+    "should return 404 for an absent job" in {
+      for {
+        response <- jobRoutes.orNotFound.run(
+          Request(method = Method.GET, uri = uri"/jobs/843df718-ec6e-4d49-9289-f799c0f400ff")
+        )
+      } yield {
+        response.status shouldBe Status.NotFound
+      }
+    }
     "should return all jobs" in {
       for {
         response <- jobRoutes.orNotFound.run(
@@ -90,6 +99,16 @@ class JobRoutesSpec
         response.status shouldBe Status.Ok
       }
     }
+    "should return 404 for an absent job on update" in {
+      for {
+        response <- jobRoutes.orNotFound.run(
+          Request(method = Method.PUT, uri = uri"/jobs/843df718-ec6e-4d49-9289-f799c0f400ff")
+            .withEntity(UpdateJobInfoAwesomeJob)
+        )
+      } yield {
+        response.status shouldBe Status.NotFound
+      }
+    }
     "should create a new job" in {
       for {
         response <- jobRoutes.orNotFound.run(
@@ -102,6 +121,30 @@ class JobRoutesSpec
       } yield {
         response.status shouldBe Status.Created
         newJobId.toString shouldBe NewJobUuid.toString
+      }
+    }
+    "should delete a job" in {
+      for {
+        response <- jobRoutes.orNotFound.run(
+          Request(
+            method = Method.DELETE,
+            uri = uri"/jobs/843df718-ec6e-4d49-9289-f799c0f40064"
+          )
+        )
+      } yield {
+        response.status shouldBe Status.Ok
+      }
+    }
+    "should return 404 when deleting an absent job" in {
+      for {
+        response <- jobRoutes.orNotFound.run(
+          Request(
+            method = Method.DELETE,
+            uri = uri"/jobs/843df718-ec6e-4d49-9289-f799c0f400ff"
+          )
+        )
+      } yield {
+        response.status shouldBe Status.NotFound
       }
     }
   }

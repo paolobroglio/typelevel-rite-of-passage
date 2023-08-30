@@ -124,19 +124,19 @@ class LiveJobs[F[_]: MonadCancelThrow] private(xa: Transactor[F]) extends Jobs[F
     sql"""
          UPDATE jobs
          SET
-            company=${jobInfo.company}
-            title=${jobInfo.title}
-            description=${jobInfo.description}
-            externalurl=${jobInfo.externalUrl}
-            remote=${jobInfo.remote}
-            location=${jobInfo.location}
-            salaryLo=${jobInfo.salaryLo}
-            salaryHi=${jobInfo.salaryHi}
-            currency=${jobInfo.currency}
-            country=${jobInfo.country}
-            tags=${jobInfo.tags}
-            image=${jobInfo.image}
-            seniority=${jobInfo.seniority}
+            company=${jobInfo.company},
+            title=${jobInfo.title},
+            description=${jobInfo.description},
+            externalurl=${jobInfo.externalUrl},
+            remote=${jobInfo.remote},
+            location=${jobInfo.location},
+            salaryLo=${jobInfo.salaryLo},
+            salaryHi=${jobInfo.salaryHi},
+            currency=${jobInfo.currency},
+            country=${jobInfo.country},
+            tags=${jobInfo.tags},
+            image=${jobInfo.image},
+            seniority=${jobInfo.seniority},
             other=${jobInfo.other}
        """
       .update

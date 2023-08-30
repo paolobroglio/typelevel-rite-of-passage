@@ -13,6 +13,7 @@ class JobsSpec
     with Matchers
   with DoobieSpec
   with JobFixture {
+
   override val initScript: String = "sql/jobs.sql"
 
   "JobsSpec" - {
@@ -24,7 +25,7 @@ class JobsSpec
             retrieved <- jobs.find(AwesomeJobUuid)
           } yield retrieved
 
-          program.asserting(_ shouldBe Some(AwesomeNewJob))
+          program.asserting(_ shouldBe Some(AwesomeJob))
       }
     }
     "should return no job if the given UUID does not exist" in {
@@ -36,6 +37,41 @@ class JobsSpec
           } yield retrieved
 
           program.asserting(_ shouldBe None)
+      }
+    }
+    "should update job" in {
+      transactor.use {
+        xa =>
+          val program = for {
+            jobs <- LiveJobs[IO](xa)
+            updated <- jobs.update(AwesomeJobUuid, UpdateJobInfoAwesomeJob)
+          } yield updated
+
+          program.asserting(_ shouldBe Some(UpdatedAwesomeJob))
+      }
+    }
+    "should create job" in {
+      transactor.use {
+        xa =>
+          val program = for {
+            jobs <- LiveJobs[IO](xa)
+            createdId <- jobs.create("daniel@rockthejvm.com", AwesomeNewJob)
+            retrieved <- jobs.find(createdId).map(_.map(_.jobInfo))
+          } yield retrieved
+
+          program.asserting(_ shouldBe Some(AwesomeNewJob))
+      }
+    }
+    "should delete job" in {
+      transactor.use {
+        xa =>
+          val program = for {
+            jobs <- LiveJobs[IO](xa)
+            createdId <- jobs.create("daniel@rockthejvm.com", AwesomeNewJob)
+            retrieved <- jobs.find(createdId).map(_.map(_.jobInfo))
+          } yield retrieved
+
+          program.asserting(_ shouldBe Some(AwesomeNewJob))
       }
     }
   }

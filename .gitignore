@@ -4,7 +4,6 @@ target/
 !**/src/test/**/target/
 
 ### IntelliJ IDEA ###
-.idea
 .bsp
 
 ### Eclipse ###
@@ -31,3 +30,16 @@ build/
 
 ### Mac OS ###
 .DS_Store
+.idea/
+/.idea/codeStyles/
+/.idea/libraries/
+/.idea/modules/
+/.idea/.gitignore
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/sbt.xml
+/.idea/scala_compiler.xml
+/.idea/scala_settings.xml
+/.idea/uiDesigner.xml
+/.idea/vcs.xml
+/.idea/workspace.xml
