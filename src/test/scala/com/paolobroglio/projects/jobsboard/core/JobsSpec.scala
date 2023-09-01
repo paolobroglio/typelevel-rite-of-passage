@@ -6,6 +6,8 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import com.paolobroglio.projects.jobsboard.fixtures.JobFixture
 import org.scalatest.freespec.AsyncFreeSpec
 import org.scalatest.matchers.should.Matchers
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 class JobsSpec
   extends AsyncFreeSpec
@@ -15,6 +17,7 @@ class JobsSpec
   with JobFixture {
 
   override val initScript: String = "sql/jobs.sql"
+  given logger: Logger[IO] = Slf4jLogger.getLogger[IO]
 
   "JobsSpec" - {
     "should return job" in {

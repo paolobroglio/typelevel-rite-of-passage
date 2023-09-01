@@ -5,7 +5,8 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.implicits.*
 import com.paolobroglio.projects.jobsboard.core.Jobs
 import com.paolobroglio.projects.jobsboard.domain.job
-import com.paolobroglio.projects.jobsboard.domain.job.Job
+import com.paolobroglio.projects.jobsboard.domain.job.{Job, JobFilter}
+import com.paolobroglio.projects.jobsboard.domain.pagination.Pagination
 import com.paolobroglio.projects.jobsboard.fixtures.JobFixture
 import io.circe.generic.auto.*
 import org.http4s.circe.CirceEntityCodec.*
@@ -30,7 +31,9 @@ class JobRoutesSpec
   val jobs: Jobs[IO] = new Jobs[IO]:
     override def create(ownerEmail: String, jobInfo: job.JobInfo): IO[UUID] = IO.pure(NewJobUuid)
 
-    override def all(): IO[List[job.Job]] = IO.pure(List(AwesomeJob))
+    override def all(filter: JobFilter, pagination: Pagination): IO[List[job.Job]] =
+      if (filter.remote) IO.pure(List())
+      else IO.pure(List(AwesomeJob))
 
     override def find(id: UUID): IO[Option[job.Job]] =
       if (id == AwesomeJob.id)
@@ -79,7 +82,8 @@ class JobRoutesSpec
     "should return all jobs" in {
       for {
         response <- jobRoutes.orNotFound.run(
-          Request(method = Method.GET, uri = uri"/jobs/")
+          Request(method = Method.POST, uri = uri"/jobs/all")
+            .withEntity(JobFilter())
         )
         retrieved <- response.as[List[Job]]
       } yield {
