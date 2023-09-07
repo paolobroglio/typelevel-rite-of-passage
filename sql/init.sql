@@ -24,3 +24,16 @@ CREATE TABLE jobs(
 
 ALTER TABLE jobs
 ADD CONSTRAINT pk_jobs PRIMARY KEY (id);
+
+CREATE TABLE users(
+          id SERIAL,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          hashedPassword text NOT NULL,
+          firstName text NOT NULL,
+          lastName text NOT NULL,
+          company text NOT NULL,
+          role text NOT NULL
+);
+
+ALTER TABLE users
+ADD CONSTRAINT pk_users PRIMARY KEY (id);
