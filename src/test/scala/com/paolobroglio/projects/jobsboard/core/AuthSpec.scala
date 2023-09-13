@@ -5,6 +5,7 @@ import cats.effect.*
 import cats.effect.implicits.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.paolobroglio.projects.jobsboard.domain.auth.NewPasswordInfo
+import com.paolobroglio.projects.jobsboard.domain.error.{AppError, UserCreationError, UserNotFoundError, WrongPasswordError}
 import com.paolobroglio.projects.jobsboard.domain.security.{Authenticator, JwtToken}
 import com.paolobroglio.projects.jobsboard.domain.user.*
 import com.paolobroglio.projects.jobsboard.fixtures.UserFixture
@@ -53,6 +54,7 @@ class AuthSpec
       key
     )
   }
+  
 
   given logger: Logger[IO] = Slf4jLogger.getLogger[IO]
 
@@ -63,7 +65,7 @@ class AuthSpec
         maybeToken <- auth.login("notfound@company.com", "password1!")
       } yield maybeToken
 
-      program.asserting(_ shouldBe None)
+      program.asserting(_ shouldBe Left(UserNotFoundError("User with email notfound@company.com not found")))
     }
     "login return no token if password is wrong" in {
       val program = for {
@@ -71,7 +73,7 @@ class AuthSpec
         maybeToken <- auth.login("mario@company.com", "wrong-password")
       } yield maybeToken
 
-      program.asserting(_ shouldBe None)
+      program.asserting(_ shouldBe Left(WrongPasswordError("Invalid password")))
     }
     "login return token if succeeds" in {
       val program = for {
@@ -79,7 +81,10 @@ class AuthSpec
         maybeToken <- auth.login("mario@company.com", "password1!")
       } yield maybeToken
 
-      program.asserting(_ shouldBe a [Some[JwtToken]])
+      program.asserting {
+        case Left(_) => fail()
+        case Right(jwt) => succeed
+      }
     }
     "signUp registers a new user" in {
       val program = for {
@@ -87,15 +92,18 @@ class AuthSpec
         newUser <- auth.signUp(AverageJoeSignUp)
       } yield newUser
 
-      program.asserting(_ shouldBe a [Some[User]])
+      program.asserting {
+        case Left(_) => fail()
+        case Right(newUser) => succeed
+      }
     }
-    "signUp returns None if user already exists" in {
+    "signUp returns error if user already exists" in {
       val program = for {
         auth <- LiveAuth[IO](mockedUsers, mockedAuthenticator)
         newUser <- auth.signUp(JohnDoeSignUp)
       } yield newUser
 
-      program.asserting(_ shouldBe None)
+      program.asserting(_ shouldBe Left(UserCreationError("Email already registered")))
     }
     "changePassword returns updated users with new password" in {
       val program = for {
@@ -105,28 +113,28 @@ class AuthSpec
 
       program.asserting {
         case Left(_) => fail()
-        case Right(maybeUser) => maybeUser shouldBe a [Some[User]]
+        case Right(maybeUser) => succeed
       }
     }
-    "changePassword returns None if user doesn't exist" in {
+    "changePassword returns error if user doesn't exist" in {
       val program = for {
         auth <- LiveAuth[IO](mockedUsers, mockedAuthenticator)
         result <- auth.changePassword("absent@acme.com", NewPasswordInfo("password1!", "password2!"))
       } yield result
 
-      program.asserting {
-        case Left(_) => fail()
-        case Right(maybeUser) => maybeUser shouldBe None
-      }
+      program.asserting( {
+        case Left(error) => error shouldBe UserNotFoundError("User with email absent@acme.com not found")
+        case Right(_) => fail()
+      })
     }
-    "changePassword returns Left if user doesn't exist" in {
+    "changePassword returns error if password is wrong" in {
       val program = for {
         auth <- LiveAuth[IO](mockedUsers, mockedAuthenticator)
         result <- auth.changePassword(MarioRossi.email, NewPasswordInfo("wrong-password", "password2!"))
       } yield result
 
       program.asserting {
-        case Left(error) => error shouldBe "Invalid Password"
+        case Left(error) => error shouldBe WrongPasswordError("Invalid password")
         case Right(_) => fail()
       }
     }

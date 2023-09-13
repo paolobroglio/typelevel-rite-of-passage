@@ -5,6 +5,8 @@ import cats.*
 import cats.implicits.*
 import cats.data.*
 import cats.data.Validated.*
+import com.paolobroglio.projects.jobsboard.domain.auth.{LoginInfo, NewPasswordInfo}
+import com.paolobroglio.projects.jobsboard.domain.user.NewUserInfo
 
 import java.net.URL
 import scala.util.{Failure, Success, Try}
@@ -70,6 +72,42 @@ object validators {
       seniority.validNel,
       other.validNel
     ).mapN(JobInfo.apply)
+  }
+
+  given loginInfoValidator: Validator[LoginInfo] = (loginInfo: LoginInfo) => {
+    val LoginInfo(
+      email,
+      password
+    ) = loginInfo
+
+    val validEmail = validateRequired(email, "email")(_.nonEmpty)
+    val validPassword = validateRequired(password, "password")(_.nonEmpty)
+
+    (
+      validEmail,
+      validPassword
+    ).mapN(LoginInfo.apply)
+  }
+
+  given newUserInfoValidator: Validator[NewUserInfo] = (newUserInfo: NewUserInfo) => {
+    val NewUserInfo(
+      email,
+      password,
+      firstName,
+      lastName,
+      company
+    ) = newUserInfo
+
+    val validEmail = validateRequired(email, "email")(_.nonEmpty)
+    val validPassword = validateRequired(password, "password")(_.nonEmpty)
+
+    (
+      validEmail,
+      validPassword,
+      firstName.validNel,
+      lastName.validNel,
+      company.validNel
+    ).mapN(NewUserInfo.apply)
   }
 
 }
