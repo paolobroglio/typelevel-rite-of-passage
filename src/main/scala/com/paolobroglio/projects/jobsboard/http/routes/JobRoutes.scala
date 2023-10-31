@@ -3,10 +3,12 @@ package com.paolobroglio.projects.jobsboard.http.routes
 import cats.effect.*
 import cats.implicits.*
 import cats.{Monad, MonadThrow}
-import com.paolobroglio.projects.jobsboard.core.Jobs
+import com.paolobroglio.projects.jobsboard.core.{Auth, Jobs}
 import com.paolobroglio.projects.jobsboard.domain.job.{Job, JobFilter, JobInfo}
 import com.paolobroglio.projects.jobsboard.domain.pagination.Pagination
 import com.paolobroglio.projects.jobsboard.http.responses.FailureResponse
+import com.paolobroglio.projects.jobsboard.domain.security.*
+import com.paolobroglio.projects.jobsboard.domain.user.User
 import io.circe.generic.auto.*
 import org.http4s.HttpRoutes
 import org.http4s.circe.CirceEntityCodec.*
@@ -15,11 +17,14 @@ import org.http4s.server.Router
 import org.typelevel.log4cats.Logger
 import com.paolobroglio.projects.jobsboard.logging.syntax.*
 import com.paolobroglio.projects.jobsboard.http.validation.syntax.*
+import tsec.authentication.{SecuredRequestHandler, asAuthed}
 
 import java.util.UUID
 import scala.collection.mutable
 
-class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F]) extends HttpValidationDsl[F] {
+class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F], authenticator: Authenticator[F]) extends HttpValidationDsl[F] {
+
+  private val securedHandler: SecuredRequestHandler[F, String, User, JwtToken] = SecuredRequestHandler(authenticator)
 
   object OffsetQueryParam extends OptionalQueryParamDecoderMatcher[Int]("offset")
   object LimitQueryParam extends OptionalQueryParamDecoderMatcher[Int]("limit")
@@ -46,9 +51,9 @@ class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F]) extends HttpVa
       }
   }
 
-  private val createJobRoute: HttpRoutes[F] = HttpRoutes.of[F] {
-    case req @ POST -> Root =>
-      req.validate[JobInfo] { jobInfo =>
+  private val createJobRoute: AuthRoute[F] = {
+    case req @ POST -> Root asAuthed _ =>
+      req.request.validate[JobInfo] { jobInfo =>
         for {
           _ <- Logger[F].info("Create Job called")
           id <- jobs.create("TODO@something.com", jobInfo).logError(e => s"Failed creating job: $e")
@@ -58,44 +63,53 @@ class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F]) extends HttpVa
       }
   }
 
-  private val updateJobRoute: HttpRoutes[F] = HttpRoutes.of[F] {
-    case req @ PUT -> Root / UUIDVar(id) =>
-      req.validate[JobInfo] {
+  private val updateJobRoute: AuthRoute[F] = {
+    case req @ PUT -> Root / UUIDVar(id) asAuthed user =>
+      req.request.validate[JobInfo] {
         jobInfo =>
           jobs.find(id).flatMap {
-            case Some(job) =>
+            case None =>
+              NotFound(FailureResponse(s"Job $id not found"))
+            case Some(job) if user.owns(job) || user.isAdmin =>
               for {
                 _ <- Logger[F].info("Update Job called")
                 _ <- jobs.update(id, jobInfo)
                 _ <- Logger[F].info(s"Updated JobInfo $jobInfo")
-                resp <- Ok()
+                  resp <- Ok()
               } yield resp
-            case None =>
-              NotFound(FailureResponse(s"Job $id not found"))
+            case _ => Forbidden(FailureResponse(s"You don't own Job $id"))
           }
       }
   }
 
-  private val deleteJobRoute: HttpRoutes[F] = HttpRoutes.of[F] {
-    case req @ DELETE -> Root / UUIDVar(id) =>
+  private val deleteJobRoute: AuthRoute[F] = {
+    case req @ DELETE -> Root / UUIDVar(id) asAuthed user =>
       jobs.find(id).flatMap {
-        case Some(job) =>
-          for {
-            _ <- Logger[F].info("Delete Job called")
-            affected <- jobs.delete(id)
-            _ <- Logger[F].info(s"Deleted Jobs $affected")
-            resp <- Ok()
-          } yield resp
         case None =>
           NotFound(FailureResponse(s"Job $id not found"))
+        case Some(job) if user.owns(job) || user.isAdmin =>
+          for {
+            _ <- Logger[F].info("Delete Job called")
+              affected <- jobs.delete(id)
+            _ <- Logger[F].info(s"Deleted Jobs $affected")
+              resp <- Ok()
+          } yield resp
+        case _ => Forbidden(FailureResponse(s"You don't own Job $id"))
       }
   }
 
+  val nonAuthedRoutes = allJobsRoute <+> findJobRoute
+  val authedRoutes = securedHandler.liftService(
+    createJobRoute.restrictedTo(allRoles) |+|
+      deleteJobRoute.restrictedTo(allRoles) |+|
+      updateJobRoute.restrictedTo(allRoles)
+  )
+
   val routes: HttpRoutes[F] = Router(
-    "/jobs" -> (allJobsRoute <+> findJobRoute <+> createJobRoute <+> updateJobRoute <+> deleteJobRoute)
+    "/jobs" -> (nonAuthedRoutes <+> authedRoutes)
   )
 }
 
 object JobRoutes {
-  def apply[F[_]: Concurrent: Logger](jobs: Jobs[F]) = new JobRoutes[F](jobs)
+  def apply[F[_]: Concurrent: Logger](jobs: Jobs[F], authenticator: Authenticator[F]) = new JobRoutes[F](jobs, authenticator)
 }

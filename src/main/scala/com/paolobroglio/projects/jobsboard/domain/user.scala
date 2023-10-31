@@ -1,6 +1,8 @@
 package com.paolobroglio.projects.jobsboard.domain
 
+import com.paolobroglio.projects.jobsboard.domain.job.Job
 import doobie.util.meta.Meta
+import tsec.authorization.{AuthGroup, SimpleAuthEnum}
 
 import java.util.UUID
 
@@ -13,7 +15,10 @@ object user {
       lastName: Option[String],
       company: Option[String],
       role: Role
-                       )
+                       ) {
+    def owns(job: Job): Boolean = email == job.ownerEmail
+    def isAdmin: Boolean = role == Role.ADMIN
+  }
   
   final case class NewUserInfo(
                                 email: String, 
@@ -41,5 +46,10 @@ object user {
   object Role {
     given metaRole: Meta[Role] =
       Meta[String].timap[Role](Role.valueOf)(_.toString)
+  }
+
+  given roleAuthEnum: SimpleAuthEnum[Role, String] with {
+    override val values: AuthGroup[Role] = AuthGroup(Role.ADMIN, Role.RECRUITER)
+    override def getRepr(role: Role): String = role.toString
   }
 }

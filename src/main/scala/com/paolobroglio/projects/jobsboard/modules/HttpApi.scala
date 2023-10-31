@@ -4,17 +4,18 @@ import cats.effect.*
 import cats.implicits.*
 import cats.{Monad, MonadThrow}
 import com.paolobroglio.projects.jobsboard.core.Jobs
-import com.paolobroglio.projects.jobsboard.http.routes.{HealthRoutes, JobRoutes}
+import com.paolobroglio.projects.jobsboard.http.routes.{AuthRoutes, HealthRoutes, JobRoutes}
 import org.http4s.HttpRoutes
 import org.http4s.server.Router
 import org.typelevel.log4cats.Logger
 
 class HttpApi[F[_]: Concurrent: Logger] private (core: Core[F]) {
   private val healthRoutes = HealthRoutes[F].routes
-  private val jobRoutes = JobRoutes[F](core.jobs).routes
+  private val jobRoutes = JobRoutes[F](core.jobs, core.auth.authenticator).routes
+  private val authRoutes = AuthRoutes[F](core.auth).routes
   
   val endpoints: HttpRoutes[F] = Router(
-    "/api" -> (healthRoutes <+> jobRoutes)
+    "/api" -> (healthRoutes <+> jobRoutes <+> authRoutes)
   )
 }
 

@@ -7,7 +7,7 @@ import com.paolobroglio.projects.jobsboard.core.Auth
 import com.paolobroglio.projects.jobsboard.domain.auth.{LoginInfo, NewPasswordInfo}
 import com.paolobroglio.projects.jobsboard.domain.error
 import com.paolobroglio.projects.jobsboard.domain.error.AppError
-import com.paolobroglio.projects.jobsboard.domain.security.{AuthRoute, JwtToken}
+import com.paolobroglio.projects.jobsboard.domain.security.*
 import com.paolobroglio.projects.jobsboard.domain.user.{NewUserInfo, User}
 import com.paolobroglio.projects.jobsboard.http.responses.FailureResponse
 import org.typelevel.log4cats.Logger
@@ -68,7 +68,7 @@ class AuthRoutes[F[_]: Concurrent: Logger] private (auth: Auth[F]) extends HttpV
       req.validate[NewUserInfo] { newUserInfo =>
         for {
           _ <- Logger[F].info("signUp called")
-          resp <- auth.signUp(newUserInfo).logError(e => s"Failed login user: $e").flatMap {
+          resp <- auth.signUp(newUserInfo).logError(e => s"Failed signing up user: $e").flatMap {
             case Right(createdUser) =>
               Created()
             case Left(appError) =>
@@ -78,12 +78,12 @@ class AuthRoutes[F[_]: Concurrent: Logger] private (auth: Auth[F]) extends HttpV
       }
   }
 
-  private val changePassword: AuthRoute[F] = {
+  private val changePasswordRoute: AuthRoute[F] = {
     case req@PUT -> Root / "password" asAuthed user =>
       for {
         newPasswordInfo <- req.request.as[NewPasswordInfo].logError(e => "Failed to parse request: $e")
         _ <- Logger[F].info("changePassword called")
-        resp <- auth.changePassword(user.email, newPasswordInfo).logError(e => s"Failed login user: $e").flatMap {
+        resp <- auth.changePassword(user.email, newPasswordInfo).logError(e => s"Failed changing password for user: $e").flatMap {
           case Right(user) =>
             NoContent()
           case Left(appError) =>
@@ -92,9 +92,18 @@ class AuthRoutes[F[_]: Concurrent: Logger] private (auth: Auth[F]) extends HttpV
       } yield resp
   }
 
+  private val deleteUserRoute: AuthRoute[F] = {
+    case req@DELETE -> Root / "user" / id asAuthed user =>
+      for {
+        resp <- NoContent()
+      } yield resp
+  }
+
   val nonAuthedRoutes = loginRoute <+> signUpRoute
   val authedRoutes = securedHandler.liftService(
-    TSecAuthService(changePassword.orElse(logoutRoute))
+    changePasswordRoute.restrictedTo(allRoles) |+|
+      logoutRoute.restrictedTo(allRoles) |+|
+      deleteUserRoute.restrictedTo(adminOnly)
   )
 
   val routes: HttpRoutes[F] = Router(

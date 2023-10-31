@@ -5,5 +5,6 @@ import pureconfig.error.CannotConvert
 import pureconfig.generic.derivation.default.*
 final case class ApplicationConfig (
     postgresqlConfig: PostgresqlConfig,
-    emberConfig: EmberConfig
+    emberConfig: EmberConfig,
+    securityConfig: SecurityConfig
                                    ) derives ConfigReader

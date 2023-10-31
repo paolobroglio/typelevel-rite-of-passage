@@ -101,6 +101,8 @@ class AuthRoutesSpec extends AsyncFreeSpec
         } yield maybeUser
       else Left(UserNotFoundError("non existent user")).pure[IO]
 
+    override def deleteUser(id: Long): IO[Option[AppError]] = ???
+
 
   given logger: Logger[IO] = Slf4jLogger.getLogger[IO]
 
