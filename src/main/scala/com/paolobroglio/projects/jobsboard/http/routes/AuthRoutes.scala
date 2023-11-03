@@ -1,6 +1,5 @@
 package com.paolobroglio.projects.jobsboard.http.routes
 
-import com.paolobroglio.projects.jobsboard.http.validation.syntax.*
 import cats.effect.*
 import cats.implicits.*
 import com.paolobroglio.projects.jobsboard.core.Auth
@@ -10,20 +9,17 @@ import com.paolobroglio.projects.jobsboard.domain.error.AppError
 import com.paolobroglio.projects.jobsboard.domain.security.*
 import com.paolobroglio.projects.jobsboard.domain.user.{NewUserInfo, User}
 import com.paolobroglio.projects.jobsboard.http.responses.FailureResponse
-import org.typelevel.log4cats.Logger
-import io.circe.generic.auto.*
-import org.http4s.{Header, Headers, HttpRoutes, Request, Response, Status}
-import org.http4s.circe.CirceEntityCodec.*
-import com.paolobroglio.projects.jobsboard.logging.syntax.*
 import com.paolobroglio.projects.jobsboard.http.validation.syntax.*
+import com.paolobroglio.projects.jobsboard.logging.syntax.*
+import io.circe.generic.auto.*
+import org.http4s.circe.CirceEntityCodec.*
 import org.http4s.headers.Authorization
 import org.http4s.server.Router
+import org.http4s.{Header, Headers, HttpRoutes, Request, Response, Status}
 import org.typelevel.ci.CIStringSyntax
+import org.typelevel.log4cats.Logger
 import tsec.authentication.{JWTAuthenticator, SecuredRequestHandler, TSecAuthService, asAuthed}
-class AuthRoutes[F[_]: Concurrent: Logger] private (auth: Auth[F]) extends HttpValidationDsl[F] {
-
-  private val authenticator = auth.authenticator
-  private val securedHandler: SecuredRequestHandler[F, String, User, JwtToken] = SecuredRequestHandler(authenticator)
+class AuthRoutes[F[_]: Concurrent: Logger: SecuredHandler] private (auth: Auth[F], authenticator: Authenticator[F]) extends HttpValidationDsl[F] {
 
   private def manageAppError(appError: AppError): F[Response[F]] =
     appError match {
@@ -38,15 +34,17 @@ class AuthRoutes[F[_]: Concurrent: Logger] private (auth: Auth[F]) extends HttpV
   private val loginRoute: HttpRoutes[F] = HttpRoutes.of[F] {
     case req@POST -> Root / "login" =>
       req.validate[LoginInfo] { loginInfo =>
-        for {
+        val maybeJwtToken = for {
           _ <- Logger[F].info("Login called")
-          resp <- auth.login(loginInfo.email, loginInfo.password).logError(e => s"Failed login user: $e").flatMap {
-            case Right(token) =>
-              authenticator.embed(Response(Status.Ok), token).pure[F]
-            case Left(appError) =>
-              manageAppError(appError)
-          }
-        } yield resp
+          maybeUser <- auth.login(loginInfo.email, loginInfo.password).logError(e => s"Failed login user: $e")
+          _ <- Logger[F].debug("Login done, creating token")
+          maybeToken <- maybeUser.traverse(user => authenticator.create(user.email))
+        } yield maybeToken
+
+        maybeJwtToken.map {
+          case Right(jwt) => authenticator.embed(Response(Status.Ok), jwt)
+          case Left(value) => Response(Status.Unauthorized)
+        }
       }
   }
 
@@ -100,7 +98,7 @@ class AuthRoutes[F[_]: Concurrent: Logger] private (auth: Auth[F]) extends HttpV
   }
 
   val nonAuthedRoutes = loginRoute <+> signUpRoute
-  val authedRoutes = securedHandler.liftService(
+  val authedRoutes = SecuredHandler[F].liftService(
     changePasswordRoute.restrictedTo(allRoles) |+|
       logoutRoute.restrictedTo(allRoles) |+|
       deleteUserRoute.restrictedTo(adminOnly)
@@ -112,5 +110,6 @@ class AuthRoutes[F[_]: Concurrent: Logger] private (auth: Auth[F]) extends HttpV
 }
 
 object AuthRoutes {
-  def apply[F[_]: Concurrent: Logger] (auth: Auth[F]) = new AuthRoutes[F](auth)
+  def apply[F[_]: Concurrent: Logger: SecuredHandler] (auth: Auth[F], authenticator: Authenticator[F]) =
+    new AuthRoutes[F](auth, authenticator)
 }

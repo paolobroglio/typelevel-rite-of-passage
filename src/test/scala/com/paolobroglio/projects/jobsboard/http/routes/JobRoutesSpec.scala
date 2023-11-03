@@ -8,12 +8,10 @@ import com.paolobroglio.projects.jobsboard.core.Jobs
 import com.paolobroglio.projects.jobsboard.domain.job
 import com.paolobroglio.projects.jobsboard.domain.job.{Job, JobFilter}
 import com.paolobroglio.projects.jobsboard.domain.pagination.Pagination
-import com.paolobroglio.projects.jobsboard.domain.security.{Authenticator, JwtToken}
+import com.paolobroglio.projects.jobsboard.domain.security.{Authenticator, JwtToken, SecuredHandler}
 import com.paolobroglio.projects.jobsboard.domain.user.User
 import com.paolobroglio.projects.jobsboard.fixtures.{JobFixture, UserFixture}
 import io.circe.generic.auto.*
-
-import concurrent.duration.DurationInt
 import org.http4s.circe.CirceEntityCodec.*
 import org.http4s.dsl.Http4sDsl
 import org.http4s.headers.Authorization
@@ -24,11 +22,12 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.matchers.should.Matchers.shouldBe
 import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import tsec.authentication.{IdentityStore, JWTAuthenticator}
+import tsec.authentication.{IdentityStore, JWTAuthenticator, SecuredRequestHandler}
 import tsec.jws.mac.JWTMac
 import tsec.mac.jca.HMACSHA256
 
 import java.util.UUID
+import scala.concurrent.duration.DurationInt
 
 class JobRoutesSpec
   extends AsyncFreeSpec
@@ -63,14 +62,13 @@ class JobRoutesSpec
       else
         IO.pure(0)
 
-  given logger: Logger[IO] = Slf4jLogger.getLogger[IO]
-
   val mockedAuthenticator: Authenticator[IO] = {
     val key = HMACSHA256.unsafeGenerateKey
     val idStore: IdentityStore[IO, String, User] = (email: String) =>
       if (email == AverageJoe.email) OptionT.pure(AverageJoe)
       else if (email == JohnDoe.email) OptionT.pure(JohnDoe)
       else OptionT.none[IO, User]
+
 
     JWTAuthenticator.unbacked.inBearerToken(
       1.day,
@@ -80,9 +78,13 @@ class JobRoutesSpec
     )
   }
 
-  val jobRoutes: HttpRoutes[IO] = JobRoutes[IO](jobs, mockedAuthenticator).routes
+  given logger: Logger[IO] = Slf4jLogger.getLogger[IO]
+  given securedHandler: SecuredHandler[IO] = SecuredRequestHandler(mockedAuthenticator)
+
+  val jobRoutes: HttpRoutes[IO] = JobRoutes[IO](jobs).routes
 
   extension (r: Request[IO])
+
     def withBearerToken(a: JwtToken): Request[IO] =
       r.putHeaders {
         val jwtString = JWTMac.toEncodedString[IO, HMACSHA256](a.jwt)

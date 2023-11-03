@@ -22,16 +22,15 @@ import tsec.passwordhashers.PasswordHash
 import tsec.passwordhashers.jca.BCrypt
 
 trait Auth[F[_]] {
-  def login(email: String, password: String): F[Either[AppError, JwtToken]]
+  def login(email: String, password: String): F[Either[AppError, User]]
   def signUp(newUserInfo: NewUserInfo): F[Either[AppError, User]]
   def changePassword(email: String, newPasswordInfo: NewPasswordInfo): F[Either[AppError, User]]
   def deleteUser(id: Long): F[Option[AppError]]
   def logout(email: String): F[Either[AppError, User]]
-  def authenticator: Authenticator[F]
 }
 
-class LiveAuth[F[_]: Async: Logger] private (users: Users[F], override val authenticator: Authenticator[F]) extends Auth[F] {
-  override def login(email: String, password: String): F[Either[AppError, JwtToken]] =
+class LiveAuth[F[_]: Async: Logger] private (users: Users[F]) extends Auth[F] {
+  override def login(email: String, password: String): F[Either[AppError, User]] =
     users.findByEmail(email).flatMap {
       case Some(user) =>
         for {
@@ -39,13 +38,12 @@ class LiveAuth[F[_]: Async: Logger] private (users: Users[F], override val authe
             password,
             PasswordHash[BCrypt](user.hashedPassword)
           )
-          maybeToken <-
+          maybeUser <-
             if (checkedPassword)
-              authenticator.create(user.email)
-                .map(jwt => Right(jwt))
+              Right(user).pure[F]
             else
               Left(WrongPasswordError("Invalid password")).pure[F]
-        } yield maybeToken
+        } yield maybeUser
       case None =>
         Left(UserNotFoundError(s"User with email $email not found")).pure[F]
     }
@@ -113,40 +111,7 @@ class LiveAuth[F[_]: Async: Logger] private (users: Users[F], override val authe
 }
 
 object LiveAuth {
-  def apply[F[_]: Async: Logger](users: Users[F])(securityConfig: SecurityConfig): F[LiveAuth[F]] = {
-
-    val idStore: IdentityStore[F, String, User] =
-      (email: String) => OptionT(users.findByEmail(email))
-
-    val tokenStoreF = Ref.of[F, Map[SecureRandomId, JwtToken]](Map.empty).map { ref =>
-      new BackingStore[F, SecureRandomId, JwtToken] {
-        override def get(id: SecureRandomId): OptionT[F, JwtToken] =
-          OptionT(ref.get.map(_.get(id)))
-
-        override def put(elem: JwtToken): F[JwtToken] =
-          ref.modify(store => (store + (elem.id -> elem), elem))
-
-        override def update(v: JwtToken): F[JwtToken] =
-          put(v)
-
-        override def delete(id: SecureRandomId): F[Unit] =
-          ref.modify(store => (store - id, ()))
-      }
-    }
-
-    val keyF = HMACSHA256.buildKey[F](securityConfig.secret.getBytes("UTF-8"))
-
-
-    for {
-      key <- keyF
-      tokenStore <- tokenStoreF
-      authenticator = JWTAuthenticator.backed.inBearerToken(
-        expiryDuration = 1.day,
-        maxIdle = None,
-        identityStore = idStore,
-        tokenStore = tokenStore,
-        signingKey = key
-      )
-    } yield new LiveAuth[F](users, authenticator)
+  def apply[F[_]: Async: Logger](users: Users[F]): F[LiveAuth[F]] = {
+    new LiveAuth[F](users).pure[F]
   }
 }

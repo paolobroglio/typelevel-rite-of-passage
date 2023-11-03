@@ -22,9 +22,7 @@ import tsec.authentication.{SecuredRequestHandler, asAuthed}
 import java.util.UUID
 import scala.collection.mutable
 
-class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F], authenticator: Authenticator[F]) extends HttpValidationDsl[F] {
-
-  private val securedHandler: SecuredRequestHandler[F, String, User, JwtToken] = SecuredRequestHandler(authenticator)
+class JobRoutes[F[_]: Concurrent: Logger: SecuredHandler] private (jobs: Jobs[F]) extends HttpValidationDsl[F] {
 
   object OffsetQueryParam extends OptionalQueryParamDecoderMatcher[Int]("offset")
   object LimitQueryParam extends OptionalQueryParamDecoderMatcher[Int]("limit")
@@ -52,11 +50,11 @@ class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F], authenticator:
   }
 
   private val createJobRoute: AuthRoute[F] = {
-    case req @ POST -> Root asAuthed _ =>
+    case req @ POST -> Root asAuthed user =>
       req.request.validate[JobInfo] { jobInfo =>
         for {
           _ <- Logger[F].info("Create Job called")
-          id <- jobs.create("TODO@something.com", jobInfo).logError(e => s"Failed creating job: $e")
+          id <- jobs.create(user.email, jobInfo).logError(e => s"Failed creating job: $e")
           _ <- Logger[F].info(s"Created Job $id")
           resp <- Created(id)
         } yield resp
@@ -99,7 +97,7 @@ class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F], authenticator:
   }
 
   val nonAuthedRoutes = allJobsRoute <+> findJobRoute
-  val authedRoutes = securedHandler.liftService(
+  val authedRoutes = SecuredHandler[F].liftService(
     createJobRoute.restrictedTo(allRoles) |+|
       deleteJobRoute.restrictedTo(allRoles) |+|
       updateJobRoute.restrictedTo(allRoles)
@@ -111,5 +109,5 @@ class JobRoutes[F[_]: Concurrent: Logger] private (jobs: Jobs[F], authenticator:
 }
 
 object JobRoutes {
-  def apply[F[_]: Concurrent: Logger](jobs: Jobs[F], authenticator: Authenticator[F]) = new JobRoutes[F](jobs, authenticator)
+  def apply[F[_]: Concurrent: Logger: SecuredHandler](jobs: Jobs[F]) = new JobRoutes[F](jobs)
 }

@@ -9,7 +9,7 @@ import com.paolobroglio.projects.jobsboard.domain.auth.{LoginInfo, NewPasswordIn
 import com.paolobroglio.projects.jobsboard.domain.error.{AppError, UserCreationError, UserNotFoundError, WrongPasswordError}
 import com.paolobroglio.projects.jobsboard.domain.job.{Job, JobFilter}
 import com.paolobroglio.projects.jobsboard.domain.pagination.Pagination
-import com.paolobroglio.projects.jobsboard.domain.security.{Authenticator, JwtToken}
+import com.paolobroglio.projects.jobsboard.domain.security.{Authenticator, JwtToken, SecuredHandler}
 import com.paolobroglio.projects.jobsboard.domain.user.{NewUserInfo, User}
 import com.paolobroglio.projects.jobsboard.domain.{auth, job, user}
 import com.paolobroglio.projects.jobsboard.fixtures.{JobFixture, UserFixture}
@@ -24,7 +24,7 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.matchers.should.Matchers.shouldBe
 import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import tsec.authentication.{IdentityStore, JWTAuthenticator}
+import tsec.authentication.{IdentityStore, JWTAuthenticator, SecuredRequestHandler}
 import tsec.jws.mac.JWTMac
 import tsec.mac.jca.HMACSHA256
 import tsec.passwordhashers.PasswordHash
@@ -54,7 +54,7 @@ class AuthRoutesSpec extends AsyncFreeSpec
   }
 
   val mockedAuth: Auth[IO] = new Auth[IO]:
-    override def login(email: String, password: String): IO[Either[AppError, JwtToken]] =
+    override def login(email: String, password: String): IO[Either[AppError, User]] =
       if (email == AverageJoe.email)
         for {
           checkPassword <- BCrypt.checkpwBool[IO](
@@ -63,8 +63,7 @@ class AuthRoutesSpec extends AsyncFreeSpec
           )
           maybeJwt <-
             if (checkPassword)
-              mockedAuthenticator.create(email)
-                .map(jwt => Right(jwt))
+              Right(AverageJoe).pure[IO]
             else
               Left(WrongPasswordError("wrong password")).pure[IO]
         } yield maybeJwt
@@ -77,9 +76,6 @@ class AuthRoutesSpec extends AsyncFreeSpec
           newUser <- User(1L, newUserInfo.email, hashedPassword, None, None, None, user.Role.RECRUITER).pure[IO]
         } yield Right(newUser)
       else Left(UserCreationError("email already used")).pure[IO]
-
-
-    override def authenticator: Authenticator[IO] = mockedAuthenticator
 
     override def logout(email: String): IO[Either[AppError, User]] =
       if (email == AverageJoe.email)
@@ -105,8 +101,9 @@ class AuthRoutesSpec extends AsyncFreeSpec
 
 
   given logger: Logger[IO] = Slf4jLogger.getLogger[IO]
+  given securedHandler: SecuredHandler[IO] = SecuredRequestHandler(mockedAuthenticator)
 
-  val authRoutes: HttpRoutes[IO] = AuthRoutes[IO](mockedAuth).routes
+  val authRoutes: HttpRoutes[IO] = AuthRoutes[IO](mockedAuth, mockedAuthenticator).routes
 
   extension (r: Request[IO])
     def withBearerToken(a: JwtToken): Request[IO] =
@@ -145,7 +142,7 @@ class AuthRoutesSpec extends AsyncFreeSpec
             .withEntity(LoginInfo("absent@acme.org", "password1!"))
         )
       } yield {
-        response.status shouldBe Status.NotFound
+        response.status shouldBe Status.Unauthorized
       }
     }
     "signUp creates a new user" in {
